@@ -32,6 +32,7 @@ function iSmartGate(log, config) {
         serial: 'Unknown',
         firmware: require('./package.json').version
     };
+    this._informationTargets = {model: new Set(), serial: new Set(), firmware: new Set()};
     this._infoRequest = null;
     this._nextInfoAt = 0;
     this._infoHost = null;
@@ -61,12 +62,18 @@ iSmartGate.prototype = {
             .setCharacteristic(Characteristic.FirmwareRevision, this._informationValues.firmware)
             .setCharacteristic(Characteristic.SerialNumber, this._informationValues.serial);
 
-        // HOOBS copies information characteristics at startup. Read handlers survive
-        // that copy and return cached metadata without making network requests.
+        // HOOBS copies information characteristics at startup. Retain each copy
+        // when its read handler runs, so later updates also refresh its cached
+        // value. HAP may return that value without calling the handler again.
+        const owner = this;
         [['Model', 'model'], ['FirmwareRevision', 'firmware'], ['SerialNumber', 'serial']].forEach(function(pair) {
-            this.AccessoryInformation.getCharacteristic(Characteristic[pair[0]])
-                .on('get', function(callback) { callback(null, this._informationValues[pair[1]]); }.bind(this));
-        }.bind(this));
+            const characteristic = owner.AccessoryInformation.getCharacteristic(Characteristic[pair[0]]);
+            owner._informationTargets[pair[1]].add(characteristic);
+            characteristic.on('get', function(callback) {
+                owner._informationTargets[pair[1]].add(this);
+                callback(null, owner._informationValues[pair[1]]);
+            });
+        });
 		
 		// Start searching for the iSmartGate using mDNS
 		var browser = mdns.createBrowser("_hap._tcp");
@@ -149,10 +156,11 @@ iSmartGate.prototype = {
             if (info.model) this._informationValues.model = info.model;
             if (info.firmware) this._informationValues.firmware = info.firmware;
             if (info.udi) this._informationValues.serial = 'UDI-' + info.udi;
-            this.AccessoryInformation
-                .setCharacteristic(Characteristic.Model, this._informationValues.model)
-                .setCharacteristic(Characteristic.FirmwareRevision, this._informationValues.firmware)
-                .setCharacteristic(Characteristic.SerialNumber, this._informationValues.serial);
+            Object.keys(this._informationTargets).forEach(function(key) {
+                this._informationTargets[key].forEach(function(characteristic) {
+                    characteristic.updateValue(this._informationValues[key]);
+                }.bind(this));
+            }.bind(this));
             this._nextInfoAt = Date.now() + 10800000;
             this.log.debug('Device information refreshed.');
         }.bind(this)).catch(function() {

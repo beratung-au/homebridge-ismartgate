@@ -41,6 +41,6 @@
   "scripts": {
     "test": "node --test test/*.test.js"
   },
-  "version": "1.4.3-discovery.2",
+  "version": "1.4.3-discovery.3",
   "private": true
 }

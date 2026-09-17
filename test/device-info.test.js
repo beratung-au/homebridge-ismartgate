@@ -28,6 +28,24 @@ test('device response returns only allowlisted metadata, including a documented 
   assert.deepEqual(info.parseInfo(xml), expected);
 });
 
+test('observed LITE model and firmware plus a whitespace-padded address produce useful metadata', () => {
+  const observed = '<response><model>ismartgateLITE</model>' +
+    '<firmwareversion>170</firmwareversion>' +
+    '<remoteaccess>\n a1b2c3d4e5.isgaccess.com \n</remoteaccess></response>';
+  assert.deepEqual(info.parseInfo(observed), expected);
+});
+
+test('compact firmware is interpreted only for recognised iSmartGate models', () => {
+  assert.deepEqual(info.parseInfo('<response><model>ismartgatePRO</model>' +
+    '<firmwareversion>161</firmwareversion></response>'), {model:'iSmartGate PRO',firmware:'1.6.1'});
+  for (const firmware of ['1.7.0', '1.10.2', '1701', '1.7.0-beta.1']) {
+    assert.equal(info.parseInfo('<response><model>ismartgateLITE</model><firmwareversion>' +
+      firmware + '</firmwareversion></response>').firmware, firmware);
+  }
+  assert.equal(info.parseInfo('<response><model>Other controller</model>' +
+    '<firmwareversion>170</firmwareversion></response>').firmware, '170');
+});
+
 test('remote access can be disabled; only its locally returned address is inspected', () => {
   assert.equal(info.parseInfo(xml.replace('<pin>', '<remoteaccessenabled>no</remoteaccessenabled><pin>')).udi, expected.udi);
   for (const value of ['a1b2c3d4e5.isgaccess.com', 'https://a1b2c3d4e5.isgaccess.com/index.php']) {
@@ -192,6 +210,25 @@ test('real HAP information-copy behavior returns newly discovered metadata with 
   assert.equal(f.instance.uuid_base,undefined);
   assert.equal(JSON.stringify(f.config),f.before);
   assert.equal(f.calls.length,1); // Reading HomeKit metadata did not make additional HTTP requests.
+});
+
+test('copied information retains fresh values when HAP temporarily skips read handlers', async () => {
+  const f = pluginFixture(async () => expected);
+  const accessory = new hap.Accessory(f.instance.name, hap.uuid.generate('iSmartGate:' + f.instance.name));
+  const information = accessory.getService(hap.Service.AccessoryInformation);
+  information.replaceCharacteristicsFromService(f.services[0]);
+  information.characteristics.forEach((characteristic, index) => { characteristic.iid = index + 2; });
+  // A controller reads the initial values before discovery completes.
+  for (const characteristic of [hap.Characteristic.Model, hap.Characteristic.SerialNumber, hap.Characteristic.FirmwareRevision]) {
+    await information.getCharacteristic(characteristic).handleGetRequest();
+  }
+  f.instance.hostname = '192.0.2.10';
+  await f.instance._refreshDeviceInformation();
+  for (const [characteristic, value] of [[hap.Characteristic.Model, expected.model],
+    [hap.Characteristic.SerialNumber, 'UDI-' + expected.udi], [hap.Characteristic.FirmwareRevision, expected.firmware]]) {
+    assert.equal((await information.getCharacteristic(characteristic).toHAP(undefined, false)).value, value);
+  }
+  assert.equal(f.calls.length, 1);
 });
 
 test('discovery still uses the existing device login and sensor polling', async () => {

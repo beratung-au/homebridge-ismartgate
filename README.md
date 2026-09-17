@@ -6,9 +6,9 @@ Your iSmartGate sensor has more to share than whether the door is open or closed
 
 This community fork builds on the original `homebridge-ismartgate` plugin with more resilient discovery and automatic device information in Apple Home.
 
-> **Development preview · `1.4.3-discovery.2`**
+> **Development preview · `1.4.3-discovery.3`**
 >
-> Adds automatic model, firmware and device-identifier lookup. All 29 automated checks passed on Node.js 20.19.1. This metadata update has not yet been tested against a physical device or installed on HOOBS. The preceding discovery-only version was installed successfully, with existing Apple Home pairing and sensor readings retained.
+> Tested on an iSmartGate LITE with HOOBS 5.1.8: Apple Home now displays the controller model, firmware and automatically discovered device identifier. All 32 automated checks passed on Node.js 20.19.1. This remains a development preview; long-term reliability, other models and cross-VLAN operation have not yet been validated.
 
 ## A little more insight into your smart home
 
@@ -32,11 +32,13 @@ Setup stays automatic. After discovery and the existing login, the plugin makes 
 | Apple Home field | What this version reports |
 | --- | --- |
 | Manufacturer | iSmartGate |
-| Model | The controller's reported model, without guessing a different marketing name |
+| Model | The reported controller model, with known names formatted as `iSmartGate LITE` or `iSmartGate PRO` |
 | Serial Number | `UDI-` followed by the device UDI, when it can be identified from the locally returned remote-access address |
-| Firmware | The firmware revision returned by the controller |
+| Firmware | The device firmware; recognised three-digit iSmartGate revisions are formatted with dots, for example `170` → `1.7.0` |
 
-The UDI is a **device identifier, not a verified factory serial number**. The API implementation examined does not expose a factory serial. This version recognises a ten-character hexadecimal UDI in an `isgaccess.com` hostname; other address formats are left unknown. It neither contacts that remote address nor enables remote access. If the local response supplies the address while remote access is disabled, it can still be used. Missing metadata does not require enabling cloud access.
+The formatting rule follows an observed LITE response: the API returned `170` while the device app reported `1.7.0`. Three-digit versions are interpreted only when the reported model is recognised as iSmartGate. Already dotted versions, longer revisions and unknown controller models retain their original firmware value. This does not establish the format of every future firmware release.
+
+The UDI is a **device identifier, not a verified factory serial number**. The API implementation examined does not expose a factory serial. This version recognises a ten-character hexadecimal UDI in an `isgaccess.com` hostname, allowing surrounding whitespace; other address formats are left unknown. It neither contacts that remote address nor enables remote access. If the local response supplies the address while remote access is disabled, it can still be used. Missing metadata does not require enabling cloud access.
 
 The first successful lookup replaces the startup information. Before that, the model is `iSmartGate`, the serial is `Unknown`, and firmware retains the plugin version as a compatibility fallback. The package version remains available in HOOBS independently of the device firmware. HomeKit certification status is unchanged.
 
@@ -44,7 +46,7 @@ Successful values are kept **in memory for the running session** and refreshed a
 
 Each lookup has a five-second deadline and a bounded response size. Metadata reads from Apple Home use cached values immediately; they do not wait for a device request. The metadata path never sends a door command, changes device settings, follows HTTP redirects, or logs credentials or raw API responses. Temperature and battery keep their existing login and polling path.
 
-The accessory name and registration remain unchanged, and metadata is not used as an accessory UUID input. Read handlers also support HOOBS copying information characteristics during startup. Apple Home may retain previously displayed information until it reads the accessory again.
+The accessory name and registration remain unchanged, and metadata is not used as an accessory UUID input. Read handlers also support HOOBS copying information characteristics during startup. Once a copied characteristic has been read, later metadata refreshes update its cached value too, covering HAP responses that temporarily skip read handlers. Apple Home can still retain previously displayed information until it reads the accessory again; the plugin does not reset pairing or force a bridge rebuild.
 
 The local API protocol is adapted from the [ismartgate library](https://github.com/bdraco/ismartgate); see [third-party notices](THIRD_PARTY_NOTICES.md). This is a community implementation, not an official vendor API guarantee.
 
@@ -53,7 +55,7 @@ The local API protocol is adapted from the [ismartgate library](https://github.c
 - Added a discovery guard inside the plugin, so the fix travels with this fork when it is installed.
 - Preserved valid records, including those arriving alongside an unsupported record.
 - Kept the plugin name and accessory identity: `homebridge-ismartgate` / `iSmartGate`.
-- Retained 12 discovery checks and added 17 metadata checks, including failure isolation and the real HomeKit library's handling of accessory information.
+- Retained 12 discovery checks and expanded metadata coverage to 20 checks, including observed device formats, whitespace around discovery metadata, failure isolation and the real HomeKit library's handling of copied information.
 - Added the pinned `sax` XML parser for metadata responses. Runtime Node.js now requires 12 or newer; automated tests require Node.js 20 or newer.
 
 For developers: the guard lives in `lib/discovery.js` and applies to this plugin's discovery browser. It leaves original packet objects and other mDNS consumers untouched. The `mdns-js` dependency is pinned to the tested version, `1.0.3`, because the guard uses its internal browser interface. No dependency files need to be edited manually.
@@ -101,11 +103,23 @@ These changes address discovery reliability and device information. The remainin
 
 The development branch is [`fix/mdns-discovery-crash`](https://github.com/beratung-au/homebridge-ismartgate/tree/fix/mdns-discovery-crash). Check its package version to identify the revision you are viewing. It has not been published to npm or the HOOBS plugin library, and it is **not HOOBS-certified**.
 
-All **29 automated checks passed on Node.js 20.19.1**. They cover the real discovery decoder, a published independent cipher test vector, encrypted simulated API responses, deadlines, malformed data, absent metadata, sensor continuity, and information-characteristic copying using `hap-nodejs` 1.2.0. Network transport and device discovery are simulated; tests do not contact a real device or operate a door.
+All **32 automated checks passed on Node.js 20.19.1**. They cover the real discovery decoder, a published independent cipher test vector, encrypted simulated API responses, deadlines, malformed data, absent metadata, sensor continuity, and information-characteristic copying using `hap-nodejs` 1.2.0. Network transport and device discovery are simulated; tests do not contact a real device or operate a door.
 
 The preceding `1.4.3-discovery.1` package was installed in an existing HOOBS 5.1.8 bridge. Startup and device login succeeded, and temperature and battery remained available through the existing Apple Home pairing. Long-term discovery reliability and cross-VLAN operation have not been established by those observations.
 
-**The new metadata feature in `1.4.3-discovery.2` still needs physical-device validation.** Its model, firmware and UDI handling are based on the referenced API implementation and simulated responses, not a live query of the installation used to validate discovery.
+**`1.4.3-discovery.3` was installed and checked on a physical iSmartGate LITE installation on 17 September 2026.** The installed plugin files matched the tested package, and the plugin update left the bridge configuration contents unchanged. A read-only device check returned model `iSmartGate LITE`, firmware `1.7.0` and a detected UDI. Apple Home subsequently displayed `iSmartGate LITE`, firmware `1.7` and the UDI-prefixed identifier; temperature readings also continued to update. These observations validate the metadata correction on this installation, not every model or network arrangement.
+
+During validation, the tester reported clearing the plugin's device cache and rebooting HOOBS after older information remained visible. The corrected details appeared afterwards. That sequence does not establish which cache held the old values or whether both actions were necessary, and it is **not a required installation step**. Preserve existing bridge identity and pairing data when updating a remote installation.
+
+Test fixtures use synthetic addresses and identifiers. No real device identifier, credentials or installation screenshots are included in this repository.
+
+### HOOBS version labels and a blank configuration page
+
+A command-line plugin update can leave the HOOBS hub's installed-plugin listing cached at an earlier version. That label is separate from both the installed package version and the controller firmware shown in Apple Home.
+
+The HOOBS web interface also requests the plugin's online catalogue entry before loading its local configuration panel. If that catalogue returns no result, the panel can remain blank even when the plugin and its configuration schema are installed. In the installation investigated, the catalogue returned `count: 0`. This fork does not repair the HOOBS catalogue or modify the HOOBS interface. Its existing configuration fields remain name, username and password; device information is discovered automatically.
+
+Do not remove the bridge or clear its pairing/accessory cache to address these display issues.
 
 ### Running the tests
 
