@@ -1,5 +1,5 @@
 const request = require("request"),
-      mdns = require('mdns-js');
+      mdns = require('./lib/discovery');
 
 var	  API,
 	  Accessory,
@@ -49,7 +49,7 @@ iSmartGate.prototype = {
             .setCharacteristic(Characteristic.Name, this.name)
             .setCharacteristic(Characteristic.Manufacturer, "iSmartGate")
             .setCharacteristic(Characteristic.Model, "Temperature")
-            .setCharacteristic(Characteristic.FirmwareRevision, "1.4.2")
+            .setCharacteristic(Characteristic.FirmwareRevision, require('./package.json').version)
             .setCharacteristic(Characteristic.SerialNumber, this.username);
 		
 		// Start searching for the iSmartGate using mDNS
