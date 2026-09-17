@@ -163,11 +163,13 @@ test('plugin keeps its registered identity and uses the guarded browser', functi
   class Service {
     constructor() {services.push(this);}
     setCharacteristic() {return this;}
+    getCharacteristic() {return {on() {return this;}};}
   }
   const plugin = {exports:{}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../index.js'),'utf8'), {
     module:plugin, require(name) {
       if (name === 'request') return {jar() {return {};}};
+      if (name === './lib/device-info') return {fetchInfo() {throw new Error('Unexpected metadata lookup');}};
       if (name === './lib/discovery') return {createBrowser(type) {
         created++;return discovery.createBrowser(type);
       }};

@@ -8,14 +8,17 @@
   "bundleDependencies": false,
   "dependencies": {
     "mdns-js": "1.0.3",
-    "request": "^2.88.0"
+    "request": "^2.88.0",
+    "sax": "1.6.1"
   },
   "deprecated": false,
   "description": "Homebridge plug-in for iSmartGate HomeKit devices to expose their Temperature & Battery services, which would otherwise be hidden.",
-  "devDependencies": {},
+  "devDependencies": {
+    "hap-nodejs": "1.2.0"
+  },
   "engines": {
     "homebridge": ">=0.4.0",
-    "node": ">=8.6.0"
+    "node": ">=12.0.0"
   },
   "homepage": "https://github.com/beratung-au/homebridge-ismartgate#readme",
   "keywords": [
@@ -38,6 +41,6 @@
   "scripts": {
     "test": "node --test test/*.test.js"
   },
-  "version": "1.4.3-discovery.1",
+  "version": "1.4.3-discovery.2",
   "private": true
 }

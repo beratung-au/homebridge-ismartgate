@@ -1,5 +1,6 @@
 const request = require("request"),
-      mdns = require('./lib/discovery');
+      mdns = require('./lib/discovery'),
+      deviceInfo = require('./lib/device-info');
 
 var	  API,
 	  Accessory,
@@ -26,6 +27,14 @@ function iSmartGate(log, config) {
 
     this.CurrentTemperature = null;
     this.BatteryLevel = null;
+    this._informationValues = {
+        model: 'iSmartGate',
+        serial: 'Unknown',
+        firmware: require('./package.json').version
+    };
+    this._infoRequest = null;
+    this._nextInfoAt = 0;
+    this._infoHost = null;
 }
 
 iSmartGate.prototype = {
@@ -48,9 +57,16 @@ iSmartGate.prototype = {
         this.AccessoryInformation
             .setCharacteristic(Characteristic.Name, this.name)
             .setCharacteristic(Characteristic.Manufacturer, "iSmartGate")
-            .setCharacteristic(Characteristic.Model, "Temperature")
-            .setCharacteristic(Characteristic.FirmwareRevision, require('./package.json').version)
-            .setCharacteristic(Characteristic.SerialNumber, this.username);
+            .setCharacteristic(Characteristic.Model, this._informationValues.model)
+            .setCharacteristic(Characteristic.FirmwareRevision, this._informationValues.firmware)
+            .setCharacteristic(Characteristic.SerialNumber, this._informationValues.serial);
+
+        // HOOBS copies information characteristics at startup. Read handlers survive
+        // that copy and return cached metadata without making network requests.
+        [['Model', 'model'], ['FirmwareRevision', 'firmware'], ['SerialNumber', 'serial']].forEach(function(pair) {
+            this.AccessoryInformation.getCharacteristic(Characteristic[pair[0]])
+                .on('get', function(callback) { callback(null, this._informationValues[pair[1]]); }.bind(this));
+        }.bind(this));
 		
 		// Start searching for the iSmartGate using mDNS
 		var browser = mdns.createBrowser("_hap._tcp");
@@ -110,10 +126,44 @@ iSmartGate.prototype = {
 				
 				// Refresh the data
 				this._refresh();
+				this._refreshDeviceInformation();
 			}
 			else {this.log.error("Could not login.", err, response, body);}
 		}.bind(this));
 	},
+
+    _refreshDeviceInformation: function() {
+        const host = this.hostname;
+        if (!host || !this.username || !this.password || !this.AccessoryInformation) return;
+        if (this._infoRequest && this._infoRequest.host === host) return;
+        if (this._infoHost === host && Date.now() < this._nextInfoAt) return;
+        const pending = {host};
+        this._infoRequest = pending;
+        this._infoHost = host;
+        // Retry failures on the next normal sensor refresh, never on an Apple Home read.
+        this._nextInfoAt = Date.now() + 600000;
+        pending.promise = Promise.resolve().then(function() {
+            return deviceInfo.fetchInfo(host, this.username, this.password);
+        }.bind(this)).then(function(info) {
+            if (this.hostname !== host || this._infoRequest !== pending) return;
+            if (info.model) this._informationValues.model = info.model;
+            if (info.firmware) this._informationValues.firmware = info.firmware;
+            if (info.udi) this._informationValues.serial = 'UDI-' + info.udi;
+            this.AccessoryInformation
+                .setCharacteristic(Characteristic.Model, this._informationValues.model)
+                .setCharacteristic(Characteristic.FirmwareRevision, this._informationValues.firmware)
+                .setCharacteristic(Characteristic.SerialNumber, this._informationValues.serial);
+            this._nextInfoAt = Date.now() + 10800000;
+            this.log.debug('Device information refreshed.');
+        }.bind(this)).catch(function() {
+            if (this.hostname === host && this._infoRequest === pending) {
+                this.log.debug('Device information unavailable; keeping existing information.');
+            }
+        }.bind(this)).finally(function() {
+            if (this._infoRequest === pending) this._infoRequest = null;
+        }.bind(this));
+        return pending.promise;
+    },
 
     _refresh: function() {
        this.log.debug("Start refreshing temperature & battery");
@@ -160,6 +210,7 @@ iSmartGate.prototype = {
                 // Set the Status Low Battery
                 if(this.BatteryLevel <= 10) {this.BatteryService.setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW);}
                 else {this.BatteryService.setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);}
+                this._refreshDeviceInformation();
             }
             else {this.log.error("Could not connect.", err, response, body);}
         }.bind(this));
